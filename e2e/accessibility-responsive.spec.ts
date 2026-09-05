@@ -253,15 +253,40 @@ test("ATT&CK procedure examples disclose once per technique with keyboard-safe d
   const fixturePath = testInfo.outputPath("attack-procedure-fixture.sqlite3");
   await copyFile("apps/web/static/data/rule1.sqlite3", fixturePath);
   const fixtureDatabase = new DatabaseSync(fixturePath);
-  fixtureDatabase
-    .prepare(
-      `UPDATE control_attack_mappings
-       SET status = 'reviewed', reviewed_by = 'playwright-fixture', reviewed_at = '2026-09-05T00:00:00Z'
-       WHERE candidate_id = 'ism-e8-1504-m1032-prevent-t1110'`,
-    )
-    .run();
   fixtureDatabase.exec(
-    `PRAGMA foreign_keys = OFF;
+    `CREATE TABLE control_attack_bridges (
+       bridge_id TEXT PRIMARY KEY,
+       framework TEXT NOT NULL,
+       ism_catalog_version TEXT NOT NULL,
+       control_id TEXT NOT NULL,
+       attack_version TEXT NOT NULL,
+       mitigation_id TEXT NOT NULL,
+       evidence TEXT NOT NULL
+     );
+     CREATE TABLE control_attack_mappings (
+       candidate_id TEXT PRIMARY KEY,
+       bridge_id TEXT NOT NULL,
+       attack_version TEXT NOT NULL,
+       mitigation_id TEXT NOT NULL,
+       technique_id TEXT NOT NULL,
+       status TEXT NOT NULL,
+       effect TEXT NOT NULL,
+       confidence TEXT NOT NULL,
+       rationale TEXT NOT NULL,
+       evidence TEXT NOT NULL,
+       reviewed_by TEXT,
+       reviewed_at TEXT
+     );
+     INSERT INTO control_attack_bridges VALUES (
+       'playwright-bridge','ism','ISM-OSCAL-2026.09.4','ism-1504','19.2','M1032',
+       '[{"kind":"playwright-bridge"}]'
+     );
+     INSERT INTO control_attack_mappings VALUES (
+       'playwright-mapping','playwright-bridge','19.2','M1032','T1110','reviewed','prevent','high',
+       'The Playwright-only legacy fixture retains Feature 51 procedure rendering.',
+       '[{"kind":"playwright-direct"}]','playwright-fixture','2026-09-05T00:00:00Z'
+     );
+     PRAGMA foreign_keys = OFF;
      DELETE FROM control_history
        WHERE framework <> 'ism' OR catalog_version <> (
          SELECT version FROM catalog_versions WHERE framework = 'ism' ORDER BY ordinal DESC LIMIT 1

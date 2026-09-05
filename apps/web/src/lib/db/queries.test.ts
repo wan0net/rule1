@@ -643,6 +643,31 @@ describe("Rule1 query dispatcher", () => {
     database.close();
   });
 
+  it("returns an honest empty ATT&CK result when the retired legacy mapping table is absent", async () => {
+    const database = new DatabaseSync(":memory:");
+    database.exec(`
+      CREATE TABLE catalog_versions (framework TEXT, version TEXT, ordinal INTEGER);
+      CREATE TABLE attack_releases (version TEXT, domain TEXT, ordinal INTEGER);
+      INSERT INTO catalog_versions VALUES ('ism','ISM-OSCAL-2026.09.4',0);
+      INSERT INTO attack_releases VALUES ('19.2','enterprise-attack',0);
+    `);
+    const executor = new SqliteExecutor(database);
+    await expect(dispatchRule1Query(executor, "attackMappings", { framework: "ism", id: "ism-1173" })).resolves.toEqual(
+      {
+        ismCatalogVersion: "ISM-OSCAL-2026.09.4",
+        attackVersion: "19.2",
+        mappings: [],
+        procedures: [],
+      },
+    );
+
+    database.exec("CREATE TABLE control_attack_mappings (bridge_id TEXT)");
+    await expect(dispatchRule1Query(executor, "attackMappings", { framework: "ism", id: "ism-1173" })).rejects.toThrow(
+      /control_attack_bridges/,
+    );
+    database.close();
+  });
+
   it("validates compare versions and returns term history", async () => {
     const executor = new FixtureExecutor({
       versions: [

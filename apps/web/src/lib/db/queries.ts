@@ -34,6 +34,7 @@ import { jsonArray, jsonObject, nullableText, numberValue, text } from "./decode
 export type SqlValue = string | number | null | Uint8Array;
 // Five keeps future collapsed technique sections concise while the database retains every example.
 export const ATTACK_PROCEDURE_EXAMPLE_LIMIT = 5;
+const LEGACY_ATTACK_MAPPING_TABLE_MISSING = /no such table:\s*(?:main\.)?control_attack_mappings\b/i;
 export type Rule1QueryMethod =
   | "frameworks"
   | "stats"
@@ -355,14 +356,15 @@ async function e8Mappings(executor: QueryExecutor, params: E8MappingParams): Pro
 async function attackMappings(executor: QueryExecutor, params: ControlParams): Promise<AttackMappingResult> {
   const framework = canonicalFrameworkId(params.framework);
   if (framework !== "ism") return { ismCatalogVersion: null, attackVersion: null, mappings: [], procedures: [] };
-  const [versionRows, rows] = await Promise.all([
-    executor.all<Row>(`/* rule1:attack-mapping-versions */
+  const versionRows = await executor.all<Row>(`/* rule1:attack-mapping-versions */
       SELECT
         (SELECT version FROM catalog_versions WHERE framework = 'ism' ORDER BY ordinal DESC LIMIT 1)
           AS ism_catalog_version,
         (SELECT version FROM attack_releases WHERE domain = 'enterprise-attack' ORDER BY ordinal DESC LIMIT 1)
-          AS attack_version`),
-    executor.all<Row>(
+          AS attack_version`);
+  let rows: Row[];
+  try {
+    rows = await executor.all<Row>(
       `/* rule1:attack-mappings */
     SELECT b.ism_catalog_version, b.attack_version, m.technique_id, t.name AS technique_name,
       t.description AS technique_description, t.url AS technique_url, t.tactics, t.platforms,
@@ -389,8 +391,17 @@ async function attackMappings(executor: QueryExecutor, params: ControlParams): P
       )
     ORDER BY m.technique_id, m.mitigation_id, m.effect, m.bridge_id`,
       [params.id.toLowerCase()],
-    ),
-  ]);
+    );
+  } catch (error) {
+    if (!(error instanceof Error) || !LEGACY_ATTACK_MAPPING_TABLE_MISSING.test(error.message)) throw error;
+    const versions = versionRows[0];
+    return {
+      ismCatalogVersion: nullableText(versions?.ism_catalog_version),
+      attackVersion: nullableText(versions?.attack_version),
+      mappings: [],
+      procedures: [],
+    };
+  }
   const versions = versionRows[0];
   const techniqueIds = [...new Set(rows.map((row) => text(row.technique_id)))].sort();
   let procedureRows: Row[] = [];
