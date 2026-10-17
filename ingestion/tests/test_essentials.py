@@ -48,3 +48,19 @@ def test_rejects_duplicate_action_ids(tmp_path):
     }}))
     with pytest.raises(ValueError, match="duplicate"):
         parse_essentials_catalog(path)
+
+def test_official_catalog_snapshot(root_dir=None):
+    """The committed ASD release is the acceptance fixture, not synthetic data."""
+    from pathlib import Path
+    from rule1_ingest.essentials import parse_essentials_snapshot
+
+    root = Path(__file__).resolve().parents[2]
+    path = root / "data/essentials/E4EIT_catalog-2026.10.15.json"
+    parsed = parse_essentials_catalog(path)
+    snapshot = parse_essentials_snapshot(path)
+    assert parsed["metadata"]["version"] == "2026.10.15"
+    assert len(parsed["actions"]) == 58
+    assert len(parsed["principles"]) == 28
+    assert len(snapshot["controls"]) == 58
+    assert len(snapshot["groups"]) >= 28
+    assert all(item["metadata"]["oscal"] for item in snapshot["controls"].values())
