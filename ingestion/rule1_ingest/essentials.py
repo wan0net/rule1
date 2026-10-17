@@ -92,3 +92,59 @@ def parse_essentials_catalog(path: Path) -> dict[str, Any]:
         "actions": actions,
         "catalog": copy.deepcopy(catalog),
     }
+
+def parse_essentials_snapshot(path: Path) -> dict[str, Any]:
+    """Project authoritative Essentials actions into Rule1's existing history schema.
+
+    All OSCAL extension properties and nested evidence indicators are retained
+    verbatim in metadata, so a future dedicated view can render them losslessly.
+    """
+    parsed = parse_essentials_catalog(path)
+    groups: list[dict[str, Any]] = []
+    controls: dict[str, dict[str, Any]] = {}
+    catalog = parsed["catalog"]
+
+    def group_walk(items: Any, parent: str | None = None) -> None:
+        for group in _items(items, "groups"):
+            gid = group.get("id")
+            if not gid:
+                raise ValueError("OSCAL group.id is required")
+            groups.append({
+                "id": gid, "title": group.get("title", gid),
+                "parent_id": parent,
+                "overview": next((p.get("prose") for p in group.get("parts", [])
+                                  if p.get("name") == "overview"), None),
+            })
+            for action in _items(group.get("controls"), "controls"):
+                control_walk(action, gid, group.get("title", gid))
+            group_walk(group.get("groups"), gid)
+
+    def control_walk(action: dict[str, Any], section: str, section_title: str) -> None:
+        cid = action["id"]
+        if cid in controls:
+            raise ValueError(f"duplicate OSCAL control id: {cid}")
+        props = _items(action.get("props"), "control.props")
+        parts = _items(action.get("parts"), "control.parts")
+        statement = next((p.get("prose", "") for p in parts
+                          if p.get("class") == "essentials-action"), "")
+        controls[cid] = {
+            "id": cid, "display_id": cid,
+            "label": cid, "title": action.get("title", cid),
+            "statement": statement, "section_id": section,
+            "section_title": section_title, "control_class": "action",
+            "source": "oscal",
+            "metadata": {
+                "oscal": copy.deepcopy(action),
+                "domains": [p["value"] for p in props
+                            if p.get("name") == "domain" and p.get("ns") == ESSENTIALS_NS],
+            },
+        }
+        for child in _items(action.get("controls"), "control.controls"):
+            control_walk(child, section, section_title)
+
+    for action in _items(catalog.get("controls"), "catalog.controls"):
+        control_walk(action, "root", parsed["metadata"]["title"])
+    group_walk(catalog.get("groups"))
+    if len(controls) != len(parsed["actions"]):
+        raise ValueError("Essentials action count mismatch")
+    return {"groups": groups, "controls": controls}
